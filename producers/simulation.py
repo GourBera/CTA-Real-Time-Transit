@@ -1,21 +1,22 @@
-"""Defines a time simulation responsible for executing any registered
-producers
-"""
+"""Defines a time simulation responsible for executing any registered producers"""
 import datetime
-import time
-from enum import IntEnum
 import logging
 import logging.config
+import time
+from enum import IntEnum
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
+
+# Load environment variables before any other imports
+load_dotenv()
 
 # Import logging before models to ensure configuration is picked up
 logging.config.fileConfig(f"{Path(__file__).parents[0]}/logging.ini")
 
-from connector import configure_connector
-from models import Line, Weather
-
+from connector import configure_connector  # noqa: E402
+from models import Line, Weather  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

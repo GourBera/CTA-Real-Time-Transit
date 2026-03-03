@@ -1,9 +1,13 @@
+"""Utility to check whether a Kafka topic exists"""
+import os
+
 from confluent_kafka.admin import AdminClient
+
+BROKER_URL = os.getenv("KAFKA_BROKER_URL", "PLAINTEXT://localhost:9092")
 
 
 def topic_exists(topic):
     """Checks if the given topic exists in Kafka"""
-    client = AdminClient({"bootstrap.servers": "PLAINTEXT://localhost:9092"})
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
     topic_metadata = client.list_topics(timeout=5)
-    topics = topic_metadata.topics
-    return topic in topics
+    return topic in topic_metadata.topics

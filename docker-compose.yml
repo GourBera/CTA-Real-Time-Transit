@@ -1,0 +1,143 @@
+version: '3'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.2.2
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka0:
+    image: confluentinc/cp-kafka:5.2.2
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 0
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka0:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    depends_on:
+      - zookeeper
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:5.2.2
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka0:29092
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    depends_on:
+      - kafka0
+
+  rest-proxy:
+    image: confluentinc/cp-kafka-rest:5.2.2
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_REST_BOOTSTRAP_SERVERS: PLAINTEXT://kafka0:29092
+      KAFKA_REST_HOST_NAME: rest-proxy
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082
+      KAFKA_REST_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      - schema-registry
+
+  connect:
+    image: confluentinc/cp-kafka-connect:5.2.2
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: PLAINTEXT://kafka0:29092
+      CONNECT_GROUP_ID: connect
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_PLUGIN_PATH: /usr/share/java
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-config
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offset
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    depends_on:
+      - schema-registry
+
+  ksql:
+    image: confluentinc/cp-ksqldb-server:5.5.0
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_BOOTSTRAP_SERVERS: PLAINTEXT://kafka0:29092
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_SERVICE_ID: cta_
+    depends_on:
+      - schema-registry
+
+  postgres:
+    image: postgres:11
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
+      POSTGRES_DB: ${POSTGRES_DB:-cta}
+    volumes:
+      - ./producers/data/cta_stations.csv:/tmp/cta_stations.csv
+      - ./db-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cta_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  producer:
+    build:
+      context: ./producers
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_BROKER_URL: PLAINTEXT://kafka0:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_CONNECT_URL: http://connect:8083/connectors
+      REST_PROXY_URL: http://rest-proxy:8082
+      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
+      POSTGRES_DB: ${POSTGRES_DB:-cta}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+      rest-proxy:
+        condition: service_started
+      connect:
+        condition: service_started
+
+  consumer:
+    build:
+      context: ./consumers
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      KAFKA_BROKER_URL: PLAINTEXT://kafka0:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_URL: http://ksql:8088
+      SERVER_PORT: 3000
+      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
+      POSTGRES_DB: ${POSTGRES_DB:-cta}
+    depends_on:
+      - producer
+      - ksql
+    command: python server.py
+
+

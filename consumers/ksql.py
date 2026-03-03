@@ -1,36 +1,34 @@
 """Configures KSQL to combine station and turnstile data"""
 import json
 import logging
+import os
 
 import requests
+from dotenv import load_dotenv
 
 import topic_check
 
-
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-KSQL_URL = "http://localhost:8088"
-
-#
-# TODO: Complete the following KSQL statements.
-# TODO: For the first statement, create a `turnstile` table from your turnstile topic.
-#       Make sure to use 'avro' datatype!
-# TODO: For the second statment, create a `turnstile_summary` table by selecting from the
-#       `turnstile` table and grouping on station_id.
-#       Make sure to cast the COUNT of station id to `count`
-#       Make sure to set the value format to JSON
+KSQL_URL = os.getenv("KSQL_URL", "http://localhost:8088")
 
 KSQL_STATEMENT = """
-CREATE TABLE turnstile (
-    ???
+CREATE STREAM turnstile (
+    station_id INT,
+    station_name VARCHAR,
+    line VARCHAR
 ) WITH (
-    ???
+    KAFKA_TOPIC='org.chicago.cta.turnstile',
+    VALUE_FORMAT='AVRO'
 );
 
 CREATE TABLE turnstile_summary
-WITH (???) AS
-    ???
+WITH (VALUE_FORMAT='JSON') AS
+    SELECT station_id, COUNT(station_id) AS count
+    FROM turnstile
+    GROUP BY station_id;
 """
 
 
