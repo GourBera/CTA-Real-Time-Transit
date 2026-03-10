@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:5.2.2
@@ -67,6 +65,11 @@ services:
       CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
       - schema-registry
 
@@ -87,14 +90,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
-      POSTGRES_DB: ${POSTGRES_DB:-cta}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
     volumes:
       - ./producers/data/cta_stations.csv:/tmp/cta_stations.csv
       - ./db-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cta_admin"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -108,9 +111,9 @@ services:
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KAFKA_CONNECT_URL: http://connect:8083/connectors
       REST_PROXY_URL: http://rest-proxy:8082
-      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
-      POSTGRES_DB: ${POSTGRES_DB:-cta}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,7 +122,30 @@ services:
       rest-proxy:
         condition: service_started
       connect:
+        condition: service_healthy
+
+  faust:
+    build:
+      context: ./consumers
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_BROKER_URL: PLAINTEXT://kafka0:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
+    command: python faust_stream.py worker -l info
+    restart: on-failure
+    depends_on:
+      producer:
         condition: service_started
+      schema-registry:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "health_check.py"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
 
   consumer:
     build:
@@ -132,12 +158,16 @@ services:
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KSQL_URL: http://ksql:8088
       SERVER_PORT: 3000
-      POSTGRES_USER: ${POSTGRES_USER:-cta_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chicago}
-      POSTGRES_DB: ${POSTGRES_DB:-cta}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
     depends_on:
-      - producer
-      - ksql
+      producer:
+        condition: service_started
+      ksql:
+        condition: service_healthy
+      faust:
+        condition: service_healthy
     command: python server.py
 
 

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.7-slim
 
 WORKDIR /app
 
@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     librdkafka-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
@@ -18,6 +19,7 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Run the server (default)
 CMD ["python", "server.py"]

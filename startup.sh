@@ -1,4 +1,14 @@
 echo 'schema.registry.url=http://localhost:8081' >> /etc/kafka/connect-distributed.properties
+
+if [[ -z "${POSTGRES_PASSWORD:-}" ]]; then
+	echo "ERROR: POSTGRES_PASSWORD is required." >&2
+	echo "Set POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB before running startup.sh." >&2
+	exit 1
+fi
+
+export POSTGRES_USER="${POSTGRES_USER:-cta_user}"
+export POSTGRES_DB="${POSTGRES_DB:-cta}"
+
 systemctl start confluent-zookeeper > startup/startup.log 2>&1
 systemctl start confluent-kafka > startup/startup.log 2>&1
 systemctl start confluent-schema-registry > startup/startup.log 2>&1
@@ -16,12 +26,16 @@ psql -d classroom -c "DROP TABLE IF EXISTS connect_clicks; CREATE TABLE connect_
 psql -d classroom -c "COPY purchases(id,username,currency,amount)  FROM '/home/workspace/startup/purchases.csv' DELIMITER ',' CSV HEADER;" > startup/startup.log 2>&1
 psql -d classroom -c "COPY clicks(id,email,timestamp,uri,number)  FROM '/home/workspace/startup/clicks.csv' DELIMITER ',' CSV HEADER;" > startup/startup.log 2>&1
 
-su postgres -c "createuser cta_admin -s" > startup/startup.log 2>&1
-createdb cta > startup/startup.log 2>&1
-psql -d cta -c "ALTER USER cta_admin WITH PASSWORD 'chicago'" > startup/startup.log 2>&1
-psql -d cta -c "CREATE TABLE stations (stop_id INTEGER PRIMARY KEY, direction_id VARCHAR(1) NOT NULL, stop_name VARCHAR(70) NOT NULL, station_name VARCHAR(70) NOT NULL, station_descriptive_name VARCHAR(200) NOT NULL, station_id INTEGER NOT NULL, \"order\" INTEGER, red BOOLEAN NOT NULL, blue BOOLEAN NOT NULL, green BOOLEAN NOT NULL);" > startup/startup.log 2>&1
+CTA_DB_USER="${POSTGRES_USER}"
+CTA_DB_PASS="${POSTGRES_PASSWORD}"
+CTA_DB_NAME="${POSTGRES_DB}"
 
-psql -d cta -c "COPY stations(stop_id, direction_id,stop_name,station_name,station_descriptive_name,station_id,\"order\",red,blue,green) FROM '/home/workspace/startup/cta_stations.csv' DELIMITER ',' CSV HEADER;" > startup/startup.log 2>&1
+su postgres -c "createuser ${CTA_DB_USER} -s" > startup/startup.log 2>&1
+createdb "${CTA_DB_NAME}" > startup/startup.log 2>&1
+psql -d "${CTA_DB_NAME}" -c "ALTER USER ${CTA_DB_USER} WITH PASSWORD '${CTA_DB_PASS}'" > startup/startup.log 2>&1
+psql -d "${CTA_DB_NAME}" -c "CREATE TABLE stations (stop_id INTEGER PRIMARY KEY, direction_id VARCHAR(1) NOT NULL, stop_name VARCHAR(70) NOT NULL, station_name VARCHAR(70) NOT NULL, station_descriptive_name VARCHAR(200) NOT NULL, station_id INTEGER NOT NULL, \"order\" INTEGER, red BOOLEAN NOT NULL, blue BOOLEAN NOT NULL, green BOOLEAN NOT NULL);" > startup/startup.log 2>&1
+
+psql -d "${CTA_DB_NAME}" -c "COPY stations(stop_id, direction_id,stop_name,station_name,station_descriptive_name,station_id,\"order\",red,blue,green) FROM '/home/workspace/startup/cta_stations.csv' DELIMITER ',' CSV HEADER;" > startup/startup.log 2>&1
 
 # Configure lesson 6 and 7 streams
 kafka-topics --delete --zookeeper localhost:2181 --topic com.udacity.streams.users > startup/startup.log 2>&1
