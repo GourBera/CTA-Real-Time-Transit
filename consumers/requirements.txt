@@ -3,5 +3,5 @@ faust==1.7.4
 mode-streaming==0.3.2
 tornado==6.0.3
 python-dotenv==0.21.1
-requests==2.31.0
+requests==2.32.4
 aiohttp==3.8.6
